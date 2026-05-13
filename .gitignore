@@ -5,3 +5,14 @@ paper/paper.log
 paper/paper.out
 paper/paper.tex.bak
 build/
+runs/*
+!runs/.gitkeep
+results/tables/*
+!results/tables/.gitkeep
+results/figures/*
+!results/figures/.gitkeep
+results/summaries/*
+!results/summaries/.gitkeep
+__pycache__/
+.pytest_cache/
+*.pyc
