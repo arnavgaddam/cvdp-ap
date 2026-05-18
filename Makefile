@@ -16,7 +16,7 @@ $(OUT): $(SRC) $(TEXDIR)/*.tex
 	# Run BibTeX - ignore error with '-' if no citations exist yet
 	-bibtex $(BUILD)/$(BASE)
 	pdflatex -interaction=nonstopmode -halt-on-error -output-directory=$(BUILD) $(SRC)
-# 	pdflatex -interaction=nonstopmode -halt-on-error -output-directory=$(BUILD) $(SRC)
+	pdflatex -interaction=nonstopmode -halt-on-error -output-directory=$(BUILD) $(SRC)
 	@if [ -f $(BUILD)/$(BASE).pdf ]; then \
 		cp $(BUILD)/$(BASE).pdf ./$(OUT); \
 	else \

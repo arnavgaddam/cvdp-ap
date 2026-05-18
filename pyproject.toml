@@ -8,6 +8,13 @@ version = "0.1.0"
 description = "Research harnesses for evaluating LLM RTL code generation."
 requires-python = ">=3.10"
 
+[project.optional-dependencies]
+# The core experiment runner is intentionally stdlib-only.
+# These extras are for convenience when reproducing the paper artifacts and running tests.
+plots = ["matplotlib>=3.7"]
+dev = ["pytest>=7.0"]
+all = ["matplotlib>=3.7", "pytest>=7.0"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

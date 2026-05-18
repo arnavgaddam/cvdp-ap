@@ -1,0 +1,21 @@
+{
+  "name": "final_sim_repair",
+  "dataset": "datasets/cvdp/cvdp_v1_1_0_nonagentic_no_commercial_subset.jsonl",
+  "dataset_format": "cvdp",
+  "harness": "sim_repair",
+  "model": "openrouter",
+  "output_dir": "runs",
+  "temperature": 0.2,
+  "max_candidates": 1,
+  "max_repair_iters": 1,
+  "timeout_s": 180,
+  "prompt": {
+    "diagnose_failures": true,
+    "feedback_style": "structured"
+  },
+  "verifier": {
+    "type": "cvdp_docker",
+    "image_env": "CVDP_SIM_IMAGE",
+    "default_image": "nvidia/cvdp-sim:v1.0.0"
+  }
+}

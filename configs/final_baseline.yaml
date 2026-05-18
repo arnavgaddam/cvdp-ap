@@ -1,0 +1,17 @@
+{
+  "name": "final_baseline",
+  "dataset": "datasets/cvdp/cvdp_v1_1_0_nonagentic_no_commercial_subset.jsonl",
+  "dataset_format": "cvdp",
+  "harness": "baseline",
+  "model": "openrouter",
+  "output_dir": "runs",
+  "temperature": 0.2,
+  "max_candidates": 1,
+  "max_repair_iters": 0,
+  "timeout_s": 180,
+  "verifier": {
+    "type": "cvdp_docker",
+    "image_env": "CVDP_SIM_IMAGE",
+    "default_image": "nvidia/cvdp-sim:v1.0.0"
+  }
+}

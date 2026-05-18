@@ -1,7 +1,6 @@
 \documentclass{article}
 
-% NeurIPS style (camera-ready)
-\usepackage[main, final]{neurips_2026}
+\usepackage[preprint, final]{neurips_2026}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{hyperref}
@@ -11,9 +10,9 @@
 \usepackage{nicefrac}
 \usepackage{microtype}
 \usepackage{xcolor}
+\usepackage{graphicx}
 
-
-\title{Formatting Instructions For NeurIPS 2026}
+\title{Does Simulation Feedback Improve LLM-Generated RTL?}
 
 \author{%
   Arnav Gaddam\\
@@ -30,7 +29,208 @@
 \maketitle
 
 \begin{abstract}
-
+In this project we test a simple question about HDL code that is generated through LLMs. If the first answer given back by the LLM fails simulation, does giving the model the error output and asking it to repair the design actually help? We compare a one-shot baseline against a repair harness where the simulation results are fed back into the model on a 15 task subset of the CVDP RTL code generation tasks. Across three baseline runs and three repair runs, the baseline passed 22/45 task trials, while simulation repair passed 33/45, marking an improvement of the mean pass rate from 48.9\% to 73.3\%. The improvement was mainly in compile failure recovery and in description-to-RTL tasks, while code completion tasks remained substantially harder.
 \end{abstract}
+
+\section{Question}
+
+The question we are trying to answer is 
+\emph{"Does simulation-feedback repair improve correctness compared with single-shot RTL generation on a small set of standardized problems?"}
+
+This question came from a pretty practical place. When an LLM writes software, running tests and feeding back the traceback can sometimes help it fix its own mistake. We saw this earlier through working on homework 5. We wanted to see whether the same idea works for RTL. This is not obvious, because Verilog can compile while still describing the wrong circuit, and some failures only show up after several cycles of simulation. In hardware, a plausible looking module is not enough. The module has to preserve the required interface, compile under normal tools, and pass the actual functional and simulation level tests.
+
+Prior work like VerilogEval and RTLLM uses simulation-based evaluation for generated RTL~\citep{liu2023verilogeval,lu2023rtllm}. CVDP pushes this idea into a broader set of hardware design and verification problems~\citep{pinckney2025cvdp}. We use CVDP because it gives us real task prompts and real open-source harnesses, but we narrow the project to one comparison: no feedback versus feedback after failure.
+
+\section{Hypothesis/Predictions}
+
+Before running the final experiment, we wrote down our prediction in \texttt{predictions.md} so that we would not quietly move the goalposts after seeing results. Our hypothesis is that the repair harness should pass more tasks than the single-shot baseline.
+
+Our predicted range is:
+
+\begin{itemize}
+    \item Single-shot baseline: about 25--45\% of tasks pass.
+    \item Simulation repair with one repair attempt: about 40--60\% of tasks pass.
+\end{itemize}
+
+We expect the repair loop to help most when the first answer is close but has a fixable mistake. For example, a wrong port name, a syntax issue, a missing reset branch, or a small local logic bug that the verifier log points to clearly are some of the prime suspects we seek to adress here. We expect it to help less when the model misunderstands the whole state machine or when the simulation output only says that an assertion failed without making the real design error obvious.
+
+\section{Problem Selection}
+
+The task suite comes from NVIDIA's public CVDP paper. We selected 15 problems. Eight of them are description-to-RTL problems and seven of them are code completion problems. Each selected problem asks for one RTL output file, does not require extra input files, and includes the original CVDP simulation harness. 
+
+The selected rows are stored in
+\path{datasets/cvdp/cvdp_v1_1_0_nonagentic_no_commercial_subset.jsonl}.
+The source URL, task IDs, and selection rules are recorded in
+\path{datasets/cvdp/cvdp_subset_manifest.json}.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrr}
+\toprule
+Task type & Tasks & Notes \\
+\midrule
+Description-to-RTL & 8 & Full module from natural language (NL) specification \\
+Code completion & 7 & Prompt contained partial code completion \\
+\midrule
+Total & 15 & Easy, non-agentic, non-commercial split \\
+\bottomrule
+\end{tabular}
+\caption{Selected CVDP task suite. We use only rows that fit the same single file generation format and do not require external context files.}
+\label{tab:tasks}
+\end{table}
+
+\section{Validation}
+
+We distinguish execution success from domain success because this distinction is easy to blur in code generation projects.
+
+\textbf{Execution success} means the experiment infrastructure ran correctly. For example, the candidate RTL was written to the expected file, Docker started, the CVDP harness ran, and the result was recorded. If Docker is missing or the image cannot be found, that is an experiment setup failure, not evidence that the model cannot design RTL.
+
+\textbf{Domain success} means the generated RTL actually passed the hardware tests. A test only counts as passing if it satisfies all of these checks:
+
+\begin{enumerate}
+    \item The generated RTL is written to the single output path requested by the CVDP row.
+    \item The candidate compiles under the original CVDP open-source simulation harness.
+    \item The compiled design passes the CVDP cocotb/pytest tests for that task.
+\end{enumerate}
+
+Each trial writes a structured result with the pass flag, failure reason, compiler log, simulation log, attempt number, and repair metadata. That way, our final table can be traced back to the JSON logs for further inspection.
+
+\section{Harness Comparison}
+
+We compare two harnesses while keeping the task suite, model provider, temperature, timeout, extraction logic, Docker image, CVDP files, and verifier fixed.
+
+\textbf{Single-shot baseline.} The baseline prompts the model once. The harness extracts the Verilog candidate, checks that the requested module is present, writes it into the CVDP task directory, and runs the verifier. There are no repair attempts.
+
+\textbf{Simulation-feedback repair.} The repair harness starts with the exact same first prompt. If the candidate fails the interface check, compilation, or simulation, the harness sends the previous candidate plus concise verifier feedback back to the same model.
+
+The baseline config is \path{configs/final_baseline.yaml}. The repair config is \path{configs/final_sim_repair.yaml}. Both use \texttt{dataset\_format: "cvdp"}, \texttt{temperature: 0.2}, and a Docker backed CVDP verifier.
+
+\section{Results}
+
+We ran three independent baseline runs and three independent repair runs. Each run used the same problems, CVDP Docker verifier, and OpenRouter model. Table~\ref{tab:main-results} summarizes pass rate across runs. Figure~\ref{fig:pass-rates} shows the individual variation.
+
+\begin{table}[h]
+\centering
+\input{results/tables/harness_summary.tex}
+\caption{Main harness comparison over three runs per condition. The $\pm$ value is the standard deviation across runs.}
+\label{tab:main-results}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.85\linewidth]{results/figures/pass_rates.pdf}
+\caption{Pass rate for each saved run. Repair runs are consistently above the baseline runs.}
+\label{fig:pass-rates}
+\end{figure}
+
+The baseline passed 22/45 total task trials, while simulation repair passed 33/45. The baseline averaged 7.33 passing tasks per run and repair averaged 11.00. This is a 24.4 percentage improvement in average pass rate. The observed baseline rate, 48.9\%, was slightly above our predicted 25--45\% range, as was our repair rate, 73.3\%, above our predicted 40--60\% range. So the direction of the prediction was correct, but both harnesses, especially repair, performed better than expected.
+
+\begin{table}[h]
+\centering
+\input{results/tables/style_summary.tex}
+\caption{Pass rate split by CVDP task style. NL-to-RTL tasks benefited more from one repair attempt than code completion tasks.}
+\label{tab:style-results}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.78\linewidth]{results/figures/style_pass_rates.pdf}
+\caption{Problem pass rates aggregated over all runs. The gap between problem styles suggests that prompt contained code completion is a different failure regime than code generation.}
+\label{fig:style-pass-rates}
+\end{figure}
+
+The strongest result is in the description-to-RTL subset. Baseline passed 16/24 description-to-RTL trials, while repair passed 24/24. Code-completion tasks were harder: baseline passed 6/21 and repair passed 9/21. This difference is important for interpreting the result. The repair loop appears effective when the model can use concise compiler or assertion feedback to patch a self-contained generated module. It is less effective when the task prompt includes partial-code constraints that the model must preserve and complete precisely.
+
+\section{Failure Analysis and Honest Discussion}
+
+We classified failures using the structured verifier result recorded in each \texttt{results.jsonl}. Table~\ref{tab:failure-results} aggregates failures across all trials.
+
+\begin{table}[h]
+\centering
+\input{results/tables/failure_summary.tex}
+\caption{Failure reasons across all failed trials. Counts are over 45 task trials per harness.}
+\label{tab:failure-results}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.72\linewidth]{results/figures/failure_reasons.pdf}
+\caption{Failure reasons aggregated over all trials. Repair primarily reduces compile failures, which is consistent with the repair prompt receiving direct compiler diagnostics.}
+\label{fig:failure-reasons}
+\end{figure}
+
+The main area of improvement was compile error recovery. The baseline produced 20 compile failures across 45 trials, while the repair runs produced only 11. Simulation failures also decreased, from 3 to 1, but there were too few behavioral failures to make a strong claim about deeper debugging. In the repair runs, several tasks passed only after the feedback attempt. For example, the priority encoder and binary-to-one-hot decoder repeatedly failed initially because the generated Verilog assigned to outputs declared as wires. After we surfaced the actual Icarus diagnostic in the repair prompt, the model was often able to fix the declaration style.
+
+\begin{table}[h]
+\centering
+\input{results/tables/repair_outcomes.tex}
+\caption{Repair run outcomes split into problems that passed on the first attempt, problems fixed by the feedback attempt, and problems still failing after repair.}
+\label{tab:repair-outcomes}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.72\linewidth]{results/figures/repair_outcomes.pdf}
+\caption{Repair outcome by run. Ten of the 33 repair successes occurred only after feedback, so the improvement is not only due to lucky first attempts in repair runs.}
+\label{fig:repair-outcomes}
+\end{figure}
+
+Simulation feedback might improve the harness score without making the model ``understand'' the design much better. If the log points to a simple syntax or naming issue, the model can often patch it. If the failure is a deeper, behavior level problem, the same feedback may not be enough. This is also model dependent too. A stronger frontier model may actually have these capabbilities that can only be tested and brought out through testing on the most difficult benchmark problems. We especially expect sequential tasks and FSM design tasks to be harder because the bug may depend on inputs rather than one obvious expression.
+
+Another issue is overfitting to tests. Passing the CVDP harness is stronger than just compiling, but it is still not a formal proof that the RTL is correct for all possible inputs.
+
+\section{Reproducibility}
+
+The repository includes the selected problems, configs, harness code, and analysis scripts. The user should plugin their own API keys to reproduce our results.
+
+The expected reproduction flow is:
+
+\begin{verbatim}
+python3 scripts/select_cvdp_subset.py \
+  /path/to/cvdp_v1.1.0_nonagentic_code_generation_no_commercial.jsonl
+
+export CVDP_SIM_IMAGE=nvidia/cvdp-sim:v1.0.0
+PYTHONPATH=src python3 scripts/run_experiment.py configs/final_baseline.yaml
+PYTHONPATH=src python3 scripts/run_experiment.py configs/final_sim_repair.yaml
+PYTHONPATH=src python3 scripts/analyze_results.py runs/*/results.jsonl
+make
+\end{verbatim}
+
+The Docker image is built from the official CVDP repository using its simulation Dockerfile. The final configs use OpenRouter, so a reproducer should also use the exact model name in \texttt{OPENROUTER\_MODEL}.
+
+\section{Limitations and Future Improvements}
+
+We only have 15 problems, so the results still have high variance even with three runs per harness. We also tested standalone RTL modules, not large hardware projects with many files. Also, the repair harness got extra model calls, so the repair harness method is more expensive than the baseline. Finally, the result depends on the exact model, prompt, temperature, Docker image, and CVDP harness behavior.
+
+The biggest future improvement would be to run multiple models and report confidence intervals instead of one pass-rate table. We would also like to add a cost column, separate compile-fix improvements from true behavioral improvements, and include a few hand written case studies showing when repair helped or failed. A more ambitious version would combine simulation feedback with formal checks, but that would be a larger project than this one.
+
+\appendix
+
+\section{Run-Level Results}
+
+Table~\ref{tab:appendix-run-results} gives the per-run result used to construct Table~\ref{tab:main-results}. 
+
+\begin{table}[h]
+\centering
+\scriptsize
+\resizebox{\linewidth}{!}{\input{results/tables/run_summary.tex}}
+\caption{Per-run result summary.}
+\label{tab:appendix-run-results}
+\end{table}
+
+\section{Per-Task Results}
+
+Table~\ref{tab:appendix-task-results} shows per-task pass counts across the three baseline runs and three repair runs. The final column counts repair successes that occurred on the second attempt, after verifier feedback was supplied.
+
+\begin{table}[h]
+\centering
+\scriptsize
+\resizebox{\linewidth}{!}{\input{results/tables/task_summary.tex}}
+\caption{Per-task result summary across repeated runs.}
+\label{tab:appendix-task-results}
+\end{table}
+
+\bibliographystyle{plainnat}
+\bibliography{paper/references}
 
 \end{document}
